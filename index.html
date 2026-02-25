@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>4P Dou Dizhu (no jokers) — PoC</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto; margin: 0; background:#0b1320; color:#e6e6e6; }
+      .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+      .row { display:flex; gap:12px; flex-wrap:wrap; }
+      .panel { background:#111b2e; border:1px solid #1f2b46; border-radius:10px; padding:12px; }
+      button { background:#1f6feb; border:0; color:white; padding:8px 10px; border-radius:8px; cursor:pointer; }
+      button:disabled { opacity:0.5; cursor:not-allowed; }
+      .btn2 { background:#2ea043; }
+      .btn3 { background:#d29922; }
+      .btnDanger { background:#f85149; }
+      .cards { display:flex; flex-wrap:wrap; gap:6px; }
+      .card { padding:6px 8px; border:1px solid #2b3b61; border-radius:8px; background:#0f1930; cursor:pointer; user-select:none; }
+      .card.sel { outline:2px solid #1f6feb; }
+      .muted { color:#9aa4b2; }
+      .log { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas; font-size: 12px; white-space: pre-wrap; max-height: 240px; overflow:auto; }
+      .grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+      @media (max-width: 900px){ .grid{ grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h2>四人斗地主（无大小王）— PoC</h2>
+      <div class="muted">规则：52张（无大小王），4人，每人12张，底牌4张。大小：2最大、4最小；3为混子。顺子≥5张且不能带2；顺子里出现3则自动补缺（例：34567 => 45678）。</div>
+
+      <div class="row" style="margin:12px 0; align-items:center">
+        <div class="panel" style="padding:8px 10px; display:flex; gap:8px; align-items:center">
+          <span class="muted">玩家</span>
+          <input id="userName" placeholder="例如: mom" style="padding:6px 8px; border-radius:8px; border:1px solid #2b3b61; background:#0f1930; color:#e6e6e6;" />
+          <button id="saveUserBtn" class="btn2">使用</button>
+          <span id="userStatus" class="muted"></span>
+        </div>
+
+        <button id="newBtn">新开一局</button>
+        <button id="bidBtn" class="btn3" disabled>抢地主</button>
+        <button id="passBidBtn" class="btnDanger" disabled>不抢</button>
+        <button id="playBtn" class="btn2" disabled>出牌</button>
+        <button id="passBtn" class="btnDanger" disabled>不要</button>
+        <span id="status" class="muted"></span>
+      </div>
+
+      <div class="grid">
+        <div class="panel">
+          <div><b>你的手牌</b>（<span id="handCount"></span>）</div>
+          <div id="hand" class="cards" style="margin-top:8px"></div>
+          <div class="muted" style="margin-top:8px">已选：<span id="selected"></span></div>
+          <div class="muted" style="margin-top:4px">识别：<span id="detected"></span></div>
+        </div>
+
+        <div class="panel">
+          <div><b>牌桌</b></div>
+          <div class="muted">当前牌：<span id="trick"></span></div>
+          <div class="muted">上家：<span id="lastBy"></span></div>
+          <div class="muted">地主：<span id="landlord"></span>｜底牌：<span id="bottom"></span></div>
+          <hr style="border:0;border-top:1px solid #1f2b46; margin:10px 0" />
+          <div><b>日志</b></div>
+          <div id="log" class="log"></div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
