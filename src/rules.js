@@ -81,19 +81,19 @@ function isAllSameRankWithWild(cards, targetRank) {
 }
 
 function bestSetRank(cards, setSize) {
-  // For pair/triple/quad detection with wilds:
-  // find the highest rank (by rankValue) that can be formed.
-  // Excludes '3' as natural target (we don't allow creating '3 of 3' beyond using wild? but 3 itself is wildcard; treat target ranks as non-3)
+  // For pair/triple/quad detection with wilds.
+  // Rule update: if the play is ONLY 3s (e.g. 3, 33, 333, 3333), it is treated as natural 3/33/333/3333
+  // (lowest), not as wildcard to become a higher rank.
   const m = countsByRank(cards);
   const w = m.get('3') || 0;
+
+  // all wild => natural 3-set (lowest)
+  if (cards.length === w) return '3';
+
   const candidates = [];
   for (const [r, cnt] of m.entries()) {
     if (r === '3') continue;
     if (cnt + w === setSize) candidates.push(r);
-  }
-  // also allow all-wild forming any rank? If all cards are 3, then set can be any rank; choose highest for comparison.
-  if (cards.length === w) {
-    for (const r of ['4','5','6','7','8','9','10','J','Q','K','A','2']) candidates.push(r);
   }
   candidates.sort((a,b) => rankValue(a) - rankValue(b));
   return candidates.at(-1) || null;
@@ -160,9 +160,7 @@ export function classifyPlay(cards) {
   if (n === 4) {
     const r = bestSetRank(sorted, 4);
     if (r) {
-      // Special display/semantics: 3333 can act as 2222 bomb.
-      const allWild = sorted.every(c => c.r === '3');
-      if (allWild) return { ok: true, type: 'BOMB', main: '3', mainEffective: '2', size: 4, cards: sorted };
+      // Rule update: 3333 is a natural bomb of 3s (lowest), not treated as 2222.
       return { ok: true, type: 'BOMB', main: r, size: 4, cards: sorted };
     }
   }
@@ -195,10 +193,7 @@ export function classifyPlay(cards) {
   // Single
   if (n === 1) {
     const r = sorted[0].r;
-    if (r === '3') {
-      // Per your rule update: single 3 can act as wildcard up to 2.
-      return { ok: true, type: 'SINGLE', main: '3', mainEffective: '2', size: 1, cards: sorted };
-    }
+    // Rule update: a lone 3 is natural 3 (lowest), NOT wildcard.
     return { ok: true, type: 'SINGLE', main: r, size: 1, cards: sorted };
   }
 

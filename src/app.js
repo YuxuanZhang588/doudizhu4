@@ -12,6 +12,7 @@ const ui = {
   userStatus: $('userStatus'),
 
   newBtn: $('newBtn'),
+  resetRoundBtn: $('resetRoundBtn'),
   bidBtn: $('bidBtn'),
   passBidBtn: $('passBidBtn'),
   playBtn: $('playBtn'),
@@ -25,7 +26,13 @@ const ui = {
   lastBy: $('lastBy'),
   landlord: $('landlord'),
   bottom: $('bottom'),
-  log: $('log')
+  log: $('log'),
+
+  gamesPlayed: $('gamesPlayed'),
+  scoreP1: $('scoreP1'),
+  scoreP2: $('scoreP2'),
+  scoreP3: $('scoreP3'),
+  scoreP4: $('scoreP4')
 };
 
 function log(msg) {
@@ -59,8 +66,72 @@ const state = {
   bombCount: 0,
   farmersPlayed: false,
   landlordPlayCount: 0,
-  landlordOpened: false
+  landlordOpened: false,
+
+  // cumulative performance stats
+  stats: {
+    gamesPlayed: 0,
+    totalScores: [0, 0, 0, 0]
+  }
 };
+
+function statsStorageKey() {
+  const u = (state.user || 'anonymous').trim();
+  return `doudizhu_stats_${u}`;
+}
+
+function saveStats() {
+  try {
+    localStorage.setItem(statsStorageKey(), JSON.stringify(state.stats));
+  } catch (_) {}
+}
+
+function loadStats() {
+  state.stats = { gamesPlayed: 0, totalScores: [0, 0, 0, 0] };
+  try {
+    const raw = localStorage.getItem(statsStorageKey());
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return;
+    const gp = Number(parsed.gamesPlayed);
+    const ts = Array.isArray(parsed.totalScores) ? parsed.totalScores.map(Number) : null;
+    if (!Number.isFinite(gp) || !ts || ts.length !== 4 || ts.some(v => !Number.isFinite(v))) return;
+    state.stats = { gamesPlayed: gp, totalScores: ts };
+  } catch (_) {}
+}
+
+function resetStats() {
+  state.stats = { gamesPlayed: 0, totalScores: [0, 0, 0, 0] };
+  saveStats();
+  render();
+  log('[战绩] 已清空总积分与已玩局数。');
+}
+
+function applyGameScore(winnerP) {
+  if (state.landlord == null) return;
+  const base = state.multiplier;
+  const delta = [0, 0, 0, 0];
+
+  if (winnerP === state.landlord) {
+    delta[state.landlord] += 3 * base;
+    for (let p = 0; p < 4; p++) {
+      if (p !== state.landlord) delta[p] -= 1 * base;
+    }
+  } else {
+    delta[state.landlord] -= 3 * base;
+    for (let p = 0; p < 4; p++) {
+      if (p !== state.landlord) delta[p] += 1 * base;
+    }
+  }
+
+  state.stats.gamesPlayed += 1;
+  for (let p = 0; p < 4; p++) {
+    state.stats.totalScores[p] += delta[p];
+  }
+  saveStats();
+
+  log(`[战绩] 本局积分变化：P0 ${delta[0] >= 0 ? '+' : ''}${delta[0]}｜P1 ${delta[1] >= 0 ? '+' : ''}${delta[1]}｜P2 ${delta[2] >= 0 ? '+' : ''}${delta[2]}｜P3 ${delta[3] >= 0 ? '+' : ''}${delta[3]}`);
+}
 
 function resetSelection() {
   state.selectedIds.clear();
@@ -125,6 +196,14 @@ function renderTable() {
   ui.bottom.textContent = state.bottomRevealed ? formatCards(state.bottom) : '（未公开）';
 }
 
+function renderStats() {
+  ui.gamesPlayed.textContent = String(state.stats.gamesPlayed);
+  ui.scoreP1.textContent = String(state.stats.totalScores[0]);
+  ui.scoreP2.textContent = String(state.stats.totalScores[1]);
+  ui.scoreP3.textContent = String(state.stats.totalScores[2]);
+  ui.scoreP4.textContent = String(state.stats.totalScores[3]);
+}
+
 function renderButtons() {
   ui.bidBtn.disabled = !(state.phase === 'bidding' && state.bidTurn === 0);
   ui.passBidBtn.disabled = ui.bidBtn.disabled;
@@ -145,6 +224,7 @@ function render() {
   renderHand();
   renderTable();
   renderButtons();
+  renderStats();
 }
 
 function deal() {
@@ -346,6 +426,8 @@ function playCards(p, cards) {
       log(`[翻倍] ${springType === 'landlord' ? '地主春天' : '农民春天'}！倍率 x2 => 当前倍率=${state.multiplier}`);
     }
 
+    applyGameScore(winnerP);
+
     log(`游戏结束。赢家：P${winnerP}（${winnerP === state.landlord ? '地主' : '农民'}）｜倍率=${state.multiplier}（炸弹${state.bombCount}次${spring ? ' + 春天' : ''}）`);
 
     // final payload
@@ -389,8 +471,8 @@ function nextTurn() {
   state.turn = (state.turn + 1) % 4;
 }
 
-function botChoosePlay(p) {
-  // Rule-based baseline AI:
+function botChoosePlayRuleBased(p) {
+  // Rule-based baseline AI (original implementation)
   // - Enumerate candidate plays from current hand (with wild handling)
   // - If leading: prefer longer structure plays (plane_wings/plane/double_dragon/straight), else low singles
   // - If following: choose the smallest play that beats current trick; avoid bombing unless necessary
@@ -442,6 +524,81 @@ function botChoosePlay(p) {
   return beating[0].cards;
 }
 
+async function botChoosePlayAI(p) {
+  // AI-powered decision making using trained neural network model
+  try {
+    const response = await fetch('/api/get_ai_action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        game_state: {
+          hands: state.hands,
+          landlord: state.landlord,
+          trick: state.trick,
+          lastBy: state.lastBy,
+          passes: state.passes,
+          events: state.events,
+          bombCount: state.bombCount
+        },
+        player_position: p
+      })
+    });
+    
+    if (!response.ok) {
+      console.warn(`AI API failed with status ${response.status}, falling back to rule-based`);
+      return botChoosePlayRuleBased(p);
+    }
+    
+    const data = await response.json();
+    
+    if (!data.ok) {
+      console.warn(`AI API error: ${data.error}, falling back to rule-based`);
+      return botChoosePlayRuleBased(p);
+    }
+    
+    if (data.action === null) {
+      return null; // AI decided to pass
+    }
+    
+    // Convert AI action (which has dummy suits) to actual cards from hand
+    const hand = state.hands[p];
+    const action = data.action;
+    const result = [];
+    const handCopy = [...hand];
+    
+    for (const aiCard of action) {
+      // Find matching card in hand by rank
+      const idx = handCopy.findIndex(c => c.r === aiCard.r);
+      if (idx >= 0) {
+        result.push(handCopy[idx]);
+        handCopy.splice(idx, 1);
+      }
+    }
+    
+    if (result.length !== action.length) {
+      console.warn('AI returned invalid action, falling back to rule-based');
+      return botChoosePlayRuleBased(p);
+    }
+    
+    // Log AI inference time
+    if (data.elapsed_ms) {
+      console.log(`AI P${p} decision took ${data.elapsed_ms}ms`);
+    }
+    
+    return result;
+    
+  } catch (error) {
+    console.error('AI error:', error);
+    console.log('Falling back to rule-based AI');
+    return botChoosePlayRuleBased(p);
+  }
+}
+
+async function botChoosePlay(p) {
+  // Unified bot decision function: try AI first, fallback to rules
+  return await botChoosePlayAI(p);
+}
+
 function maybeBotTurn() {
   if (state.phase === 'ended') return;
 
@@ -458,10 +615,10 @@ function maybeBotTurn() {
   if (state.turn === 0) return;
 
   const p = state.turn;
-  setTimeout(() => {
+  setTimeout(async () => {
     if (state.phase !== 'playing') return;
     try {
-      let pick = botChoosePlay(p);
+      let pick = await botChoosePlay(p);
       if (!pick) {
         // If landlord is leading the first trick, passing is not allowed.
         const firstLead = (state.trick == null && state.lastBy == null);
@@ -506,11 +663,14 @@ function setUser(u) {
   ui.userName.value = user;
   ui.userStatus.textContent = `当前：${user}`;
   localStorage.setItem('doudizhu_user', user);
+  loadStats();
+  render();
 }
 
 // UI handlers
 ui.saveUserBtn.onclick = () => setUser(ui.userName.value);
 ui.newBtn.onclick = () => startGame();
+ui.resetRoundBtn.onclick = () => resetStats();
 ui.bidBtn.onclick = () => stepBid(true);
 ui.passBidBtn.onclick = () => stepBid(false);
 

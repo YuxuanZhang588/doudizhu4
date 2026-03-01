@@ -21,8 +21,19 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse, parse_qs
 
+# Import AI agent
+try:
+    from ai_agent import get_agent
+    AI_ENABLED = True
+except Exception as e:
+    print(f"Warning: AI agent not available: {e}")
+    AI_ENABLED = False
+
 HERE = Path(__file__).resolve().parent
 DATA_DIR = HERE / "data"
+
+# Global AI agent instance
+AI_AGENT = None
 
 USER_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,32}$")
 
@@ -65,6 +76,15 @@ class Handler(SimpleHTTPRequestHandler):
     # Serve files relative to project dir
     def __init__(self, *args, directory: str | None = None, **kwargs):
         super().__init__(*args, directory=str(HERE), **kwargs)
+
+    def end_headers(self) -> None:
+        # Avoid "some clients stuck on old HTML/JS" issues by disabling caching for this PoC.
+        # (APIs already send no-store.)
+        if not self.path.startswith('/api/'):
+            self.send_header('Cache-Control', 'no-store, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+        return super().end_headers()
 
     def _send_json(self, status: int, obj: Any) -> None:
         raw = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -124,6 +144,42 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
 
+        if parsed.path == "/api/get_ai_action":
+            try:
+                global AI_AGENT
+                if not AI_ENABLED:
+                    return self._send_json(503, {"ok": False, "error": "AI not available"})
+                
+                # Initialize AI agent on first use
+                if AI_AGENT is None:
+                    try:
+                        AI_AGENT = get_agent()
+                    except Exception as e:
+                        return self._send_json(500, {"ok": False, "error": f"Failed to load AI: {e}"})
+                
+                body = self._read_json() or {}
+                game_state = body.get("game_state")
+                player_position = body.get("player_position")
+                
+                if game_state is None or player_position is None:
+                    return self._send_json(400, {"ok": False, "error": "Missing game_state or player_position"})
+                
+                # Get AI action
+                import time
+                start_time = time.time()
+                action = AI_AGENT.get_action(game_state, player_position)
+                elapsed = time.time() - start_time
+                
+                return self._send_json(200, {
+                    "ok": True,
+                    "action": action,
+                    "elapsed_ms": int(elapsed * 1000)
+                })
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return self._send_json(500, {"ok": False, "error": str(e)})
+
         if parsed.path == "/api/record_game":
             try:
                 body = self._read_json() or {}
@@ -176,6 +232,8 @@ def main():
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Serving Dou Dizhu web + API on http://{args.host}:{args.port} (dir={HERE})")
     print("API: POST /api/record_game , GET /api/games?user=NAME , GET /api/health")
+    if AI_ENABLED:
+        print("     POST /api/get_ai_action (AI-powered decisions)")
     httpd.serve_forever()
 
 

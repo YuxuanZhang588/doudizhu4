@@ -37,11 +37,23 @@
         </div>
 
         <button id="newBtn">新开一局</button>
+        <button id="resetRoundBtn" class="btnDanger">重开一轮（清空统计）</button>
         <button id="bidBtn" class="btn3" disabled>抢地主</button>
         <button id="passBidBtn" class="btnDanger" disabled>不抢</button>
         <button id="playBtn" class="btn2" disabled>出牌</button>
         <button id="passBtn" class="btnDanger" disabled>不要</button>
         <span id="status" class="muted"></span>
+      </div>
+
+      <div class="panel" style="margin:8px 0 12px 0;">
+        <div><b>累计战绩</b></div>
+        <div class="muted" style="margin-top:4px">已玩局数：<span id="gamesPlayed">0</span></div>
+        <div class="row" style="margin-top:8px; gap:20px;">
+          <div class="muted">P0（你）：<span id="scoreP1">0</span></div>
+          <div class="muted">P1：<span id="scoreP2">0</span></div>
+          <div class="muted">P2：<span id="scoreP3">0</span></div>
+          <div class="muted">P3：<span id="scoreP4">0</span></div>
+        </div>
       </div>
 
       <div class="grid">
