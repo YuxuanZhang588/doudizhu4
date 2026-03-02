@@ -13,6 +13,10 @@ const ui = {
 
   newBtn: $('newBtn'),
   resetRoundBtn: $('resetRoundBtn'),
+  leaderboardBtn: $('leaderboardBtn'),
+  leaderboardModal: $('leaderboardModal'),
+  closeLeaderboard: $('closeLeaderboard'),
+  leaderboardBody: $('leaderboardBody'),
   bidBtn: $('bidBtn'),
   passBidBtn: $('passBidBtn'),
   playBtn: $('playBtn'),
@@ -131,6 +135,101 @@ function applyGameScore(winnerP) {
   saveStats();
 
   log(`[战绩] 本局积分变化：P0 ${delta[0] >= 0 ? '+' : ''}${delta[0]}｜P1 ${delta[1] >= 0 ? '+' : ''}${delta[1]}｜P2 ${delta[2] >= 0 ? '+' : ''}${delta[2]}｜P3 ${delta[3] >= 0 ? '+' : ''}${delta[3]}`);
+}
+
+// Leaderboard functions
+function getAllUserStats() {
+  const allStats = [];
+  // Iterate through localStorage to find all doudizhu_stats_* entries
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith('doudizhu_stats_')) {
+      try {
+        const username = key.replace('doudizhu_stats_', '');
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') continue;
+        const gamesPlayed = Number(parsed.gamesPlayed) || 0;
+        const totalScores = Array.isArray(parsed.totalScores) ? parsed.totalScores.map(Number) : [0, 0, 0, 0];
+        
+        // Calculate wins (when P0's score increased)
+        // We approximate wins by total score / 3 (landlord win) or / 1 (farmer win)
+        // A better approach: wins = games where totalScores[0] increased
+        // But we only have cumulative data, so we estimate based on score
+        const playerScore = totalScores[0]; // P0 is the player
+        
+        allStats.push({
+          username,
+          gamesPlayed,
+          totalScore: playerScore,
+          totalScores
+        });
+      } catch (_) {}
+    }
+  }
+  return allStats;
+}
+
+function calculateWinRate(stats) {
+  if (stats.gamesPlayed === 0) return 0;
+  // Rough win rate estimation: if average score > 0, win rate > 50%
+  // Better approximation: assume landlord is selected 25% of time (1/4 players)
+  // Landlord win = +3, loss = -3; Farmer win = +1, loss = -1
+  // Expected value per game assuming 50% win rate as landlord/farmer:
+  // 0.25 * (0.5*3 + 0.5*(-3)) + 0.75 * (0.5*1 + 0.5*(-1)) = 0
+  // If avgScore > 0, then winRate > 50%
+  
+  const avgScore = stats.totalScore / stats.gamesPlayed;
+  
+  // Linear approximation: 
+  // avgScore = 0 => 50% win rate
+  // avgScore = 2 => 100% win rate (very optimistic)
+  // avgScore = -2 => 0% win rate
+  const winRate = 50 + (avgScore / 2) * 50;
+  return Math.max(0, Math.min(100, winRate)); // Clamp to [0, 100]
+}
+
+function showLeaderboard() {
+  const allStats = getAllUserStats();
+  
+  // Sort by win rate (and games played as tiebreaker)
+  allStats.sort((a, b) => {
+    const wrA = calculateWinRate(a);
+    const wrB = calculateWinRate(b);
+    if (Math.abs(wrA - wrB) > 0.1) return wrB - wrA; // Higher win rate first
+    return b.gamesPlayed - a.gamesPlayed; // More games first
+  });
+  
+  // Render leaderboard
+  const tbody = ui.leaderboardBody;
+  tbody.innerHTML = '';
+  
+  if (allStats.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="muted" style="text-align:center">暂无数据</td></tr>';
+  } else {
+    allStats.forEach((stat, idx) => {
+      const rank = idx + 1;
+      const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
+      const winRate = calculateWinRate(stat).toFixed(1);
+      
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td><span class="rank-medal">${medal}</span>${rank}</td>
+        <td><b>${stat.username}</b></td>
+        <td>${winRate}%</td>
+        <td>${stat.gamesPlayed}</td>
+        <td>${stat.totalScore >= 0 ? '+' : ''}${stat.totalScore}</td>
+      `;
+      tbody.appendChild(row);
+    });
+  }
+  
+  ui.leaderboardModal.classList.add('show');
+}
+
+function hideLeaderboard() {
+  ui.leaderboardModal.classList.remove('show');
 }
 
 function resetSelection() {
@@ -269,7 +368,16 @@ async function recordGameToServer(payload) {
 }
 
 function startGame() {
+  // Check if user is set
+  if (!state.user || !state.user.trim()) {
+    ui.status.textContent = '⚠️ 请先输入用户名或从下拉菜单中选择！';
+    ui.userName.focus();
+    log('[错误] 请先输入用户名再开始游戏。');
+    return;
+  }
+  
   ui.log.textContent = '';
+  ui.status.textContent = '';
 
   state.gameId = newGameId();
   state.startedAt = new Date().toISOString();
@@ -671,6 +779,12 @@ function setUser(u) {
 ui.saveUserBtn.onclick = () => setUser(ui.userName.value);
 ui.newBtn.onclick = () => startGame();
 ui.resetRoundBtn.onclick = () => resetStats();
+ui.leaderboardBtn.onclick = () => showLeaderboard();
+ui.closeLeaderboard.onclick = () => hideLeaderboard();
+ui.leaderboardModal.onclick = (e) => {
+  // Close modal when clicking outside the content
+  if (e.target === ui.leaderboardModal) hideLeaderboard();
+};
 ui.bidBtn.onclick = () => stepBid(true);
 ui.passBidBtn.onclick = () => stepBid(false);
 
@@ -710,17 +824,16 @@ ui.passBtn.onclick = () => {
   }
 };
 
-function randomUser() {
-  // 8 hex chars
-  const suffix = Math.random().toString(16).slice(2, 10);
-  return `guest-${suffix}`;
-}
-
 // init
 render();
 {
   const stored = localStorage.getItem('doudizhu_user') || '';
-  if (stored && stored.trim()) setUser(stored);
-  else setUser(randomUser());
+  if (stored && stored.trim()) {
+    setUser(stored);
+    log('欢迎回来！点击"新开一局"开始游戏。');
+  } else {
+    state.user = null;
+    ui.userStatus.textContent = '请输入用户名';
+    log('请先输入用户名或从下拉菜单选择（Lin, Hua, YZ），然后点击"使用"按钮。');
+  }
 }
-log('Click New Game to start.');

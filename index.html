@@ -21,6 +21,18 @@
       .log { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas; font-size: 12px; white-space: pre-wrap; max-height: 240px; overflow:auto; }
       .grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
       @media (max-width: 900px){ .grid{ grid-template-columns: 1fr; } }
+      
+      /* Leaderboard Modal */
+      .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; align-items:center; justify-content:center; }
+      .modal.show { display:flex; }
+      .modal-content { background:#111b2e; border:1px solid #1f2b46; border-radius:10px; padding:20px; max-width:600px; width:90%; max-height:80vh; overflow-y:auto; }
+      .modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+      .modal-close { background:#f85149; border:0; color:white; padding:4px 10px; border-radius:8px; cursor:pointer; font-size:16px; }
+      .leaderboard-table { width:100%; border-collapse:collapse; margin-top:12px; }
+      .leaderboard-table th { text-align:left; padding:8px; border-bottom:2px solid #1f2b46; color:#9aa4b2; }
+      .leaderboard-table td { padding:8px; border-bottom:1px solid #1f2b46; }
+      .leaderboard-table tr:hover { background:#0f1930; }
+      .rank-medal { font-size:18px; margin-right:4px; }
     </style>
   </head>
   <body>
@@ -31,13 +43,19 @@
       <div class="row" style="margin:12px 0; align-items:center">
         <div class="panel" style="padding:8px 10px; display:flex; gap:8px; align-items:center">
           <span class="muted">玩家</span>
-          <input id="userName" placeholder="例如: mom" style="padding:6px 8px; border-radius:8px; border:1px solid #2b3b61; background:#0f1930; color:#e6e6e6;" />
+          <input id="userName" list="userSuggestions" placeholder="例如: Lin" style="padding:6px 8px; border-radius:8px; border:1px solid #2b3b61; background:#0f1930; color:#e6e6e6;" />
+          <datalist id="userSuggestions">
+            <option value="Lin">
+            <option value="Hua">
+            <option value="YZ">
+          </datalist>
           <button id="saveUserBtn" class="btn2">使用</button>
           <span id="userStatus" class="muted"></span>
         </div>
 
         <button id="newBtn">新开一局</button>
         <button id="resetRoundBtn" class="btnDanger">重开一轮（清空统计）</button>
+        <button id="leaderboardBtn" class="btn3">🏆 查看排行榜</button>
         <button id="bidBtn" class="btn3" disabled>抢地主</button>
         <button id="passBidBtn" class="btnDanger" disabled>不抢</button>
         <button id="playBtn" class="btn2" disabled>出牌</button>
@@ -73,6 +91,31 @@
           <div><b>日志</b></div>
           <div id="log" class="log"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- Leaderboard Modal -->
+    <div id="leaderboardModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 style="margin:0">🏆 胜率排行榜</h2>
+          <button id="closeLeaderboard" class="modal-close">✕</button>
+        </div>
+        <div class="muted">统计所有玩家的胜率和游戏数据</div>
+        <table class="leaderboard-table">
+          <thead>
+            <tr>
+              <th>排名</th>
+              <th>玩家</th>
+              <th>胜率</th>
+              <th>局数</th>
+              <th>总分</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboardBody">
+            <tr><td colspan="5" class="muted" style="text-align:center">暂无数据</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
