@@ -217,13 +217,20 @@ export function classifyPlay(cards) {
     return { ok: true, type: 'STRAIGHT', main: st.highRank, len: st.len, size: n, mappedValues: st.mappedValues, mappedRanks: st.mappedValues.map(valueToRank), cards: sorted };
   }
 
+  // Quad with wings (四带二) — checked before double dragon/plane for 6-card plays
+  // so that wildcard-heavy hands (e.g. 553344) are classified as QUAD_WINGS rather than PLANE.
+  if (n === 6) {
+    const qw = classifyQuadWings(sorted);
+    if (qw) return qw;
+  }
+
   // Double dragon (consecutive pairs, len>=3)
   const dd = doubleDragonResolve(sorted);
   if (dd) {
     return { ok: true, type: 'DOUBLE_DRAGON', main: dd.highRank, len: dd.len, size: n, mappedValues: dd.mappedValues, mappedRanks: dd.mappedValues.map(valueToRank), cards: sorted };
   }
 
-  // Plane / plane with wings (PoC: only single wings, not pair wings)
+  // Plane / plane with wings (only single wings; consecutive triples required)
   const plane = classifyPlane(sorted);
   if (plane) return plane;
 
@@ -280,9 +287,9 @@ function doubleDragonResolve(cards) {
 }
 
 function classifyPlane(cards) {
-  // User rule override (2026-02-20): plane-with-wings does NOT require triple groups to be consecutive.
-  // Need k>=2 triple groups (each 3-of-a-kind using '3' as wild). Triple ranks may include '2'.
-  // If wings present: only single wings; wing count == k.
+  // PLANE: k>=2 CONSECUTIVE triple groups in ranks [4..A]; triples must be consecutive (e.g. 444555 ok, 444666 NOT ok).
+  // PLANE_WINGS: same but k*4 cards with k single kickers.
+  // '3' acts as wildcard. '2' cannot appear as a triple rank (but may be a kicker for PLANE_WINGS).
   const n = cards.length;
   if (n < 6) return null;
   const m0 = countsByRank(cards);
@@ -294,65 +301,84 @@ function classifyPlane(cards) {
   }
   if (possibleK.length === 0) return null;
 
-  const tripleRankPool = ['4','5','6','7','8','9','10','J','Q','K','A','2'];
-
-  // helper: combinations of array indices (small sizes only)
-  function* comb(arr, k, start=0, picked=[]) {
-    if (picked.length === k) { yield picked.slice(); return; }
-    for (let i = start; i <= arr.length - (k - picked.length); i++) {
-      picked.push(arr[i]);
-      yield* comb(arr, k, i + 1, picked);
-      picked.pop();
-    }
-  }
-
   let best = null;
+
   for (const k of possibleK) {
     const hasWings = (n === 4 * k);
     const wingsNeeded = hasWings ? k : 0;
 
-    for (const ranks of comb(tripleRankPool, k)) {
-      // compute wild need
-      let needW = 0;
-      for (const r of ranks) {
-        const have = m0.get(r) || 0;
-        needW += Math.max(0, 3 - have);
-      }
-      if (needW > w0) continue;
+    // Try all consecutive windows of k ranks within [4..14] (4..A, no 2 or 3)
+    for (let start = 4; start <= 14 - k + 1; start++) {
+      let wildsForTriples = 0;
+      const tripleUsed = new Map();
 
-      // compute wings by removing triple allocations (real first, then wild)
-      const used = new Map();
-      let wildLeft = w0;
-      for (const r of ranks) {
+      for (let v = start; v < start + k; v++) {
+        const r = valueToRank(v); // always '4'..'A'
         const have = m0.get(r) || 0;
         const take = Math.min(3, have);
-        used.set(r, take);
-        const need = 3 - take;
-        used.set('3', (used.get('3') || 0) + need);
-        wildLeft -= need;
+        tripleUsed.set(r, take);
+        wildsForTriples += (3 - take);
       }
+      if (wildsForTriples > w0) continue;
 
-      const wings = [];
-      for (const c of cards) {
-        const r = c.r;
-        const u = used.get(r) || 0;
-        if (u > 0) used.set(r, u - 1);
-        else wings.push(r);
+      // Count leftover cards (potential wings or excess)
+      const remainingWilds = w0 - wildsForTriples;
+      let leftoverNonWild = 0;
+      for (const [r, cnt] of m0.entries()) {
+        if (r === '3') continue;
+        const used = tripleUsed.get(r) || 0;
+        leftoverNonWild += cnt - used;
       }
-      if (wings.length !== wingsNeeded) continue;
+      const totalLeftover = remainingWilds + leftoverNonWild;
 
-      // main is highest triple rank
-      let main = ranks[0];
-      for (const r of ranks) {
-        if (rankValue(r) > rankValue(main)) main = r;
-      }
+      if (hasWings && totalLeftover !== wingsNeeded) continue;
+      if (!hasWings && totalLeftover !== 0) continue;
 
-      const cand = { ok:true, type: hasWings ? 'PLANE_WINGS' : 'PLANE', main, k, size:n, cards };
+      const main = valueToRank(start + k - 1); // highest triple rank
+      const cand = { ok: true, type: hasWings ? 'PLANE_WINGS' : 'PLANE', main, k, size: n, cards };
       if (!best || rankValue(cand.main) > rankValue(best.main)) best = cand;
     }
   }
 
   return best;
+}
+
+function classifyQuadWings(cards) {
+  // 四带二: a bomb (4-of-a-kind, wilds allowed) + exactly 2 kicker cards.
+  if (cards.length !== 6) return null;
+  const m = countsByRank(cards);
+  const w = m.get('3') || 0;
+
+  // Try each non-wild rank as the quad rank, highest first
+  const nonWildEntries = [...m.entries()]
+    .filter(([r]) => r !== '3')
+    .sort((a, b) => rankValue(b[0]) - rankValue(a[0]));
+
+  for (const [r, cnt] of nonWildEntries) {
+    const needWild = Math.max(0, 4 - cnt);
+    if (needWild > w) continue;
+    const usedNat = Math.min(cnt, 4);
+    const remainingOf = cnt - usedNat;
+    const remainingWild = w - needWild;
+    let otherNonWild = 0;
+    for (const [r2, c2] of nonWildEntries) {
+      if (r2 === r) continue;
+      otherNonWild += c2;
+    }
+    const totalLeftover = remainingOf + remainingWild + otherNonWild;
+    if (totalLeftover === 2) {
+      return { ok: true, type: 'QUAD_WINGS', main: r, size: 6, cards };
+    }
+  }
+
+  // All-wild quad (3333 + 2 kickers)
+  if (w >= 4) {
+    const remaining = (w - 4) + nonWildEntries.reduce((s, [, c]) => s + c, 0);
+    if (remaining === 2) {
+      return { ok: true, type: 'QUAD_WINGS', main: '3', size: 6, cards };
+    }
+  }
+  return null;
 }
 
 export function canBeat(prev, next) {
@@ -389,6 +415,8 @@ export function canBeat(prev, next) {
       return mainV(next) > mainV(prev);
     case 'PLANE_WINGS':
       if (next.k !== prev.k) return false;
+      return mainV(next) > mainV(prev);
+    case 'QUAD_WINGS':
       return mainV(next) > mainV(prev);
     default:
       return false;
@@ -510,6 +538,26 @@ export function generateCandidates(hand) {
     const remaining = sorted.filter(c => !usedIds.has(c.id));
     if (remaining.length >= 1) {
       plays.push([...triplePick, remaining[0]]);
+    }
+  }
+
+  // quad with wings (四带二)
+  for (const r of ranks) {
+    const have = (by.get(r) || []).length;
+    const needWild = Math.max(0, 4 - have);
+    if (needWild > wilds) continue;
+
+    const needMap = new Map();
+    needMap.set(r, Math.min(have, 4));
+    const quadPick = pickWithWilds(sorted, needMap, needWild);
+    if (!quadPick) continue;
+
+    const usedIds = new Set(quadPick.map(c => c.id));
+    const remaining = sorted.filter(c => !usedIds.has(c.id));
+    for (let i = 0; i < remaining.length; i++) {
+      for (let j = i + 1; j < remaining.length; j++) {
+        plays.push([...quadPick, remaining[i], remaining[j]]);
+      }
     }
   }
 

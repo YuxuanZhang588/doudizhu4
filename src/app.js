@@ -274,6 +274,7 @@ function renderHand() {
     DOUBLE_DRAGON: '双龙(连对)',
     PLANE: '飞机',
     PLANE_WINGS: '飞机带翅膀',
+    QUAD_WINGS: '四带二',
     BOMB: '炸弹'
   }[t] || t);
 
@@ -596,6 +597,7 @@ function botChoosePlayRuleBased(p) {
       // prefer shedding more cards using structures
       let bonus = 0;
       if (t === 'PLANE_WINGS') bonus = 400;
+      else if (t === 'QUAD_WINGS') bonus = 380;
       else if (t === 'PLANE') bonus = 350;
       else if (t === 'DOUBLE_DRAGON') bonus = 300;
       else if (t === 'STRAIGHT') bonus = 250;
