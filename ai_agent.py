@@ -597,7 +597,7 @@ def get_agent(checkpoint_dir=None):
     global _agent
     if _agent is None:
         if checkpoint_dir is None:
-            # Default to DouZero4 checkpoints directory
-            checkpoint_dir = Path(__file__).parent.parent / 'DouZero4' / 'douzero_checkpoints'
+            # Default to retrainV2-5m checkpoint directory (5750400 steps)
+            checkpoint_dir = Path(__file__).parent.parent / 'DouZero4' / 'douzero_checkpoints' / 'retrainV2-5m'
         _agent = AIAgent(checkpoint_dir)
     return _agent
