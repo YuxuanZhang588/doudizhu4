@@ -110,10 +110,16 @@ class Handler(SimpleHTTPRequestHandler):
 
         if parsed.path == "/api/model_info":
             import ai_agent as _ai_mod
+            # Ensure agent (and MODEL_INFO) is initialized
+            if AI_ENABLED:
+                try:
+                    get_agent()
+                except Exception:
+                    pass
             info = dict(getattr(_ai_mod, 'MODEL_INFO', {}))
             info['ai_enabled'] = AI_ENABLED
-            if AI_ENABLED and not info:
-                info = {'name': 'unknown', 'ai_enabled': True}
+            if not info.get('name'):
+                info['name'] = 'unknown'
             return self._send_json(200, info)
 
         if parsed.path == "/api/games":
@@ -238,6 +244,16 @@ def main():
     args = ap.parse_args()
 
     os.chdir(str(HERE))
+
+    # Eagerly load AI model so first request isn't slow and MODEL_INFO is ready
+    if AI_ENABLED:
+        print("Pre-loading AI model...")
+        try:
+            get_agent()
+            print("AI model loaded.")
+        except Exception as e:
+            print(f"Warning: AI model pre-load failed: {e}")
+
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Serving Dou Dizhu web + API on http://{args.host}:{args.port} (dir={HERE})")
     print("API: POST /api/record_game , GET /api/games?user=NAME , GET /api/health")
