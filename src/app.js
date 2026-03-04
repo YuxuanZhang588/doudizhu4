@@ -36,7 +36,8 @@ const ui = {
   scoreP1: $('scoreP1'),
   scoreP2: $('scoreP2'),
   scoreP3: $('scoreP3'),
-  scoreP4: $('scoreP4')
+  scoreP4: $('scoreP4'),
+  modelBadge: $('modelBadge')
 };
 
 function log(msg) {
@@ -839,3 +840,26 @@ render();
     log('请先输入用户名或从下拉菜单选择（Lin, Hua, YZ），然后点击"使用"按钮。');
   }
 }
+
+async function fetchModelInfo() {
+  if (!ui.modelBadge) return;
+  try {
+    const res = await fetch('/api/model_info');
+    const info = await res.json();
+    const dot = ui.modelBadge.querySelector('.dot');
+    if (dot) dot.classList.remove('loading');
+    if (!info.ai_enabled) {
+      ui.modelBadge.innerHTML = '<span class="dot" style="background:#f85149"></span><span>AI 未启用（规则对手）</span>';
+      return;
+    }
+    const frames = info.frames ? `${(info.frames / 1e6).toFixed(1)}M帧` : '';
+    const wp = info.wp_vs_random ? ` · 胜率 ${(info.wp_vs_random * 100).toFixed(1)}% vs random` : '';
+    ui.modelBadge.innerHTML =
+      `<span class="dot"></span>对战模型：<b>${info.name || 'unknown'}</b>` +
+      (frames ? ` <span style="color:#9aa4b2">(${frames}${wp})</span>` : '');
+  } catch (_) {
+    if (ui.modelBadge) ui.modelBadge.innerHTML = '<span class="dot" style="background:#f85149"></span><span>模型信息获取失败</span>';
+  }
+}
+
+fetchModelInfo();

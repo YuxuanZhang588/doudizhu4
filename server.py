@@ -23,11 +23,12 @@ from urllib.parse import urlparse, parse_qs
 
 # Import AI agent
 try:
-    from ai_agent import get_agent
+    from ai_agent import get_agent, MODEL_INFO as _AI_MODEL_INFO
     AI_ENABLED = True
 except Exception as e:
     print(f"Warning: AI agent not available: {e}")
     AI_ENABLED = False
+    _AI_MODEL_INFO = {}
 
 HERE = Path(__file__).resolve().parent
 DATA_DIR = HERE / "data"
@@ -106,6 +107,14 @@ class Handler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/health":
             return self._send_json(200, {"ok": True, "time": iso_now()})
+
+        if parsed.path == "/api/model_info":
+            import ai_agent as _ai_mod
+            info = dict(getattr(_ai_mod, 'MODEL_INFO', {}))
+            info['ai_enabled'] = AI_ENABLED
+            if AI_ENABLED and not info:
+                info = {'name': 'unknown', 'ai_enabled': True}
+            return self._send_json(200, info)
 
         if parsed.path == "/api/games":
             qs = parse_qs(parsed.query)

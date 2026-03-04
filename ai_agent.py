@@ -14,6 +14,12 @@ DOUZERO4_ROOT = Path(__file__).resolve().parent.parent / "DouZero4"
 if DOUZERO4_ROOT.exists() and str(DOUZERO4_ROOT) not in sys.path:
     sys.path.insert(0, str(DOUZERO4_ROOT))
 
+# DouZero project root (transformer branch, attn_v1 checkpoints)
+DOUZERO_ROOT = Path(__file__).resolve().parent.parent / "DouZero4"
+
+# Model info exposed via /api/model_info
+MODEL_INFO = {}
+
 from douzero.env.move_generator import MovesGener
 from douzero.env import move_detector as md, move_selector as ms
 
@@ -136,6 +142,24 @@ def _process_action_seq(sequence, length=20):
         empty_sequence.extend(sequence)
         sequence = empty_sequence
     return sequence
+
+
+def _process_action_seq_v2(sequence, length=32):
+    """Process action sequence for transformer encoding (32 tokens)."""
+    sequence = sequence[-length:].copy()
+    if len(sequence) < length:
+        empty_sequence = [[] for _ in range(length - len(sequence))]
+        empty_sequence.extend(sequence)
+        sequence = empty_sequence
+    return sequence
+
+
+def _action_seq_list2array_transformer(action_seq_list):
+    """Encode action sequence as (32, 52) array for transformer z-encoder."""
+    action_seq_array = np.zeros((len(action_seq_list), 52), dtype=np.float32)
+    for row, list_cards in enumerate(action_seq_list):
+        action_seq_array[row, :] = _cards2array(list_cards)
+    return action_seq_array  # shape (32, 52)
 
 
 def _get_one_hot_array(num_left_cards, max_num_cards):
@@ -562,9 +586,8 @@ class AIAgent:
             elif et == 'pass':
                 action_sequence.append([])
         
-        z = _action_seq_list2array(_process_action_seq(action_sequence))
-        z_batch = np.repeat(z[np.newaxis, :, :], num_legal_actions, axis=0)
-        
+        z_batch = self._encode_z(action_sequence, num_legal_actions)
+
         obs = {
             'position': position,
             'x_batch': x_batch.astype(np.float32),
@@ -574,6 +597,11 @@ class AIAgent:
         
         return obs
     
+    def _encode_z(self, action_sequence, num_legal_actions):
+        """Encode action history into z_batch (LSTM format: B x 5 x 208)."""
+        z = _action_seq_list2array(_process_action_seq(action_sequence))
+        return np.repeat(z[np.newaxis, :, :], num_legal_actions, axis=0)
+
     def _cards_to_js(self, action_cards):
         """Convert integer card list to JS format."""
         if not action_cards:
@@ -588,16 +616,79 @@ class AIAgent:
         return js_cards
 
 
+class AttnV1Agent(AIAgent):
+    """
+    AI agent using the attn_v1 transformer checkpoint from DouZero.
+    Uses ResNet + Transformer z-encoder (d=256, 4 layers) trained with
+    opponent pool. z_batch shape: (B, 32, 52) instead of LSTM's (B, 5, 208).
+    """
+
+    def __init__(self, checkpoint_dir=None):
+        if checkpoint_dir is None:
+            checkpoint_dir = DOUZERO_ROOT / 'douzero_checkpoints' / 'attn_v1'
+        # Add DouZero (transformer branch) to path for model_dict
+        if DOUZERO_ROOT.exists() and str(DOUZERO_ROOT) not in sys.path:
+            sys.path.insert(0, str(DOUZERO_ROOT))
+        # Call grandparent __init__ logic manually (skip AIAgent.__init__ would
+        # re-call _load_models after path setup, which is fine)
+        self.checkpoint_dir = Path(checkpoint_dir)
+        self.device = torch.device('cpu')
+        self.models = {}
+        print(f"[attn_v1] Loading transformer models from {self.checkpoint_dir}")
+        self._load_models()
+        print("[attn_v1] Models loaded successfully")
+
+    def _load_models(self):
+        """Load all four positions using the transformer ResNet model_dict."""
+        from douzero.dmc.models import model_dict
+        for position in POSITIONS:
+            # Pick the latest checkpoint by frame number
+            ckpt_files = sorted(
+                self.checkpoint_dir.glob(f"{position}_weights_*.ckpt"),
+                key=lambda p: int(p.stem.split('_')[-1])
+            )
+            if not ckpt_files:
+                raise FileNotFoundError(f"No checkpoint found for {position} in {self.checkpoint_dir}")
+            ckpt_path = ckpt_files[-1]
+            print(f"  Loading {position} from {ckpt_path.name}")
+
+            model = model_dict[position](z_encoder='transformer')
+            model_state = model.state_dict()
+            pretrained = torch.load(ckpt_path, map_location=self.device)
+            pretrained = {k: v for k, v in pretrained.items() if k in model_state}
+            model_state.update(pretrained)
+            model.load_state_dict(model_state)
+            model.to(self.device)
+            model.eval()
+            self.models[position] = model
+
+    def _encode_z(self, action_sequence, num_legal_actions):
+        """Encode action history into z_batch (transformer format: B x 32 x 52)."""
+        z = _action_seq_list2array_transformer(_process_action_seq_v2(action_sequence, 32))
+        return np.repeat(z[np.newaxis, :, :], num_legal_actions, axis=0)
+
+
 # Global agent instance
 _agent = None
 
 
 def get_agent(checkpoint_dir=None):
-    """Get or create global AI agent instance."""
-    global _agent
+    """Get or create global AI agent instance (defaults to attn_v1)."""
+    global _agent, MODEL_INFO
     if _agent is None:
-        if checkpoint_dir is None:
-            # Default to retrainV2-5m checkpoint directory (5750400 steps)
-            checkpoint_dir = Path(__file__).parent.parent / 'DouZero4' / 'douzero_checkpoints' / 'retrainV2-5m'
-        _agent = AIAgent(checkpoint_dir)
+        _agent = AttnV1Agent(checkpoint_dir)
+        # Determine frame count from latest landlord checkpoint
+        ckpt_files = sorted(
+            _agent.checkpoint_dir.glob('landlord_weights_*.ckpt'),
+            key=lambda p: int(p.stem.split('_')[-1])
+        )
+        frames = int(ckpt_files[-1].stem.split('_')[-1]) if ckpt_files else 0
+        MODEL_INFO = {
+            'name': 'attn_v1',
+            'description': 'Transformer z-encoder (d=256, 4L) + Dueling DQN + opponent pool',
+            'frames': frames,
+            'wp_vs_random': 0.882,
+            'z_encoder': 'transformer',
+            'checkpoint_dir': str(_agent.checkpoint_dir),
+        }
     return _agent

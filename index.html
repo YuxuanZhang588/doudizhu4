@@ -33,11 +33,17 @@
       .leaderboard-table td { padding:8px; border-bottom:1px solid #1f2b46; }
       .leaderboard-table tr:hover { background:#0f1930; }
       .rank-medal { font-size:18px; margin-right:4px; }
+      /* Model version badge */
+      .model-badge { display:inline-flex; align-items:center; gap:6px; background:#0f1930; border:1px solid #1f2b46; border-radius:20px; padding:4px 12px; font-size:12px; color:#9aa4b2; }
+      .model-badge .dot { width:8px; height:8px; border-radius:50%; background:#2ea043; flex-shrink:0; }
+      .model-badge .dot.loading { background:#d29922; animation: pulse 1s infinite; }
+      .model-badge b { color:#e6e6e6; }
+      @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <h2>四人斗地主（无大小王）— PoC</h2>
+      <h2>四人斗地主（无大小王）— PoC <span id="modelBadge" class="model-badge"><span class="dot loading"></span><span>加载模型中…</span></span></h2>
       <div class="muted">规则：52张（无大小王），4人，每人12张，底牌4张。大小：2最大、4最小；3为混子。顺子≥5张且不能带2；顺子里出现3则自动补缺（例：34567 => 45678）。</div>
 
       <div class="row" style="margin:12px 0; align-items:center">
